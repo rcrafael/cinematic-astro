@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CINEMATIC ASTRO — Create cinematic video animations from astrophotography deep sky object images with 3D parallax effects, zoom, rotation, and star field generation." />
+  <title>CINEMATIC ASTRO — Deep Sky Object Animator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌌%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ═══ Header ═══ -->
+    <header class="app-header">
+      <div class="app-logo">
+        <div class="app-logo-icon">🌌</div>
+        <div class="app-title-group">
+          <h1>CINEMATIC ASTRO</h1>
+          <p class="app-intro">Transform deep-sky astrophotography into immersive 3D cinematic flybys with realistic depth, star fields, and motion.</p>
+        </div>
+      </div>
+      <span class="app-subtitle">Deep Sky Object Animator</span>
+    </header>
+
+    <!-- ═══ Control Panel (Left) ═══ -->
+    <aside class="control-panel">
+
+      <!-- ── Upload: Starless Image ── -->
+      <div class="card" id="card-starless">
+        <div class="card-header">
+          <div class="card-icon">🖼️</div>
+          <span class="card-title">Starless Image</span>
+          <span class="card-badge">Required</span>
+        </div>
+        <div class="upload-zone" id="upload-starless">
+          <input type="file" id="input-starless" accept=".fit,.fits,.png,.tiff,.tif,.jpg,.jpeg" />
+          <div class="upload-icon">📁</div>
+          <div class="upload-text">
+            <strong>Click to upload</strong> or drag & drop<br/>your starless DSO image
+          </div>
+          <div class="upload-formats">.fit .fits .png .tiff .jpg</div>
+          <div class="upload-preview" id="preview-starless">
+            <canvas id="thumb-starless"></canvas>
+            <div class="upload-filename">
+              <span id="filename-starless"></span>
+              <button class="upload-remove" id="remove-starless" title="Remove">✕</button>
+            </div>
+          </div>
+        </div>
+        <!-- Independent Stretch Mode for Starless Image -->
+        <div class="control-group" style="margin-top:var(--space-sm)">
+          <div class="control-label" style="font-size:0.75rem; color:var(--text-muted)">Starless Stretch</div>
+          <select id="ctrl-starless-stretch">
+            <option value="none" selected>Original / Processed (No Stretch)</option>
+            <option value="auto">Auto-Stretch (Raw Linear FITS)</option>
+          </select>
+        </div>
+        <!-- Stretch Level Slider (shown when Auto-Stretch is selected) -->
+        <div class="control-group" id="group-starless-level" style="display:none; margin-top:var(--space-xs)">
+          <div class="control-label" style="font-size:0.75rem">
+            Stretch Strength
+            <span class="control-value" id="val-starless-stretch">50%</span>
+          </div>
+          <input type="range" id="ctrl-starless-stretch-level" min="0" max="100" value="50" />
+        </div>
+      </div>
+
+      <!-- ── Upload: Star Mask ── -->
+      <div class="card" id="card-starmask">
+        <div class="card-header">
+          <div class="card-icon">✨</div>
+          <span class="card-title">Star Mask</span>
+          <span class="card-badge optional">Optional</span>
+        </div>
+        <div class="upload-zone" id="upload-starmask">
+          <input type="file" id="input-starmask" accept=".fit,.fits,.png,.tiff,.tif,.jpg,.jpeg" />
+          <div class="upload-icon">🌟</div>
+          <div class="upload-text">
+            <strong>Click to upload</strong> star mask<br/>or leave empty to auto-generate
+          </div>
+          <div class="upload-formats">.fit .fits .png .tiff .jpg</div>
+          <div class="upload-preview" id="preview-starmask">
+            <canvas id="thumb-starmask"></canvas>
+            <div class="upload-filename">
+              <span id="filename-starmask"></span>
+              <button class="upload-remove" id="remove-starmask" title="Remove">✕</button>
+            </div>
+          </div>
+        </div>
+        <!-- Independent Stretch Mode for Star Mask -->
+        <div class="control-group" style="margin-top:var(--space-sm)">
+          <div class="control-label" style="font-size:0.75rem; color:var(--text-muted)">Star Mask Stretch</div>
+          <select id="ctrl-starmask-stretch">
+            <option value="none" selected>Original / Processed (No Stretch)</option>
+            <option value="auto">Auto-Stretch (Raw Linear FITS)</option>
+          </select>
+        </div>
+        <!-- Stretch Level Slider (shown when Auto-Stretch is selected) -->
+        <div class="control-group" id="group-starmask-level" style="display:none; margin-top:var(--space-xs)">
+          <div class="control-label" style="font-size:0.75rem">
+            Stretch Strength
+            <span class="control-value" id="val-starmask-stretch">50%</span>
+          </div>
+          <input type="range" id="ctrl-starmask-stretch-level" min="0" max="100" value="50" />
+        </div>
+
+        <!-- Star Generation Controls (shown when no mask) -->
+        <div class="star-gen-controls visible" id="star-gen-controls">
+          <div class="control-group" style="margin-top:var(--space-md)">
+            <div class="control-label">
+              Star Density
+              <span class="control-value" id="val-density">50%</span>
+            </div>
+            <input type="range" id="ctrl-density" min="0" max="100" value="50" />
+          </div>
+          <div class="control-group">
+            <div class="control-label">
+              Star Color Temp
+              <span class="control-value" id="val-colortemp">Neutral</span>
+            </div>
+            <input type="range" id="ctrl-colortemp" min="0" max="100" value="50" />
+          </div>
+          <div class="control-group">
+            <div class="control-label">
+              Max Brightness
+              <span class="control-value" id="val-brightness">100%</span>
+            </div>
+            <input type="range" id="ctrl-brightness" min="20" max="125" value="100" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Video Settings ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🎬</div>
+          <span class="card-title">Video Settings</span>
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            Duration
+            <span class="control-value" id="val-duration">10s</span>
+          </div>
+          <input type="range" id="ctrl-duration" min="10" max="30" value="10" step="1" />
+        </div>
+        <div class="control-group">
+          <div class="control-label">Resolution</div>
+          <select id="ctrl-resolution">
+            <option value="1920x1080" selected>1080p (1920×1080)</option>
+            <option value="2560x1440">1440p (2560×1440)</option>
+            <option value="3840x2160">4K (3840×2160)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <div class="control-label">Frame Rate</div>
+          <select id="ctrl-fps">
+            <option value="24">24 fps (Cinematic)</option>
+            <option value="30" selected>30 fps</option>
+            <option value="60">60 fps (Smooth)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <div class="control-label">Easing</div>
+          <select id="ctrl-easing">
+            <option value="linear">Linear</option>
+            <option value="easeInOutCubic" selected>Ease In/Out (Smooth)</option>
+            <option value="easeInCubic">Ease In</option>
+            <option value="easeOutCubic">Ease Out</option>
+            <option value="easeInOutSine">Ease In/Out Sine</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ── Zoom Effect ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔍</div>
+          <span class="card-title">Zoom Effect</span>
+        </div>
+        <div class="toggle-container">
+          <span class="toggle-label">Enable Zoom</span>
+          <label class="toggle">
+            <input type="checkbox" id="ctrl-zoom-enable" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="effect-controls visible" id="zoom-controls">
+          <div class="control-group">
+            <div class="control-label">Direction</div>
+            <div class="btn-group" id="ctrl-zoom-dir">
+              <button class="active" data-value="in">Zoom In</button>
+              <button data-value="out">Zoom Out</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label">
+              Speed
+              <span class="control-value" id="val-zoom-speed">50%</span>
+            </div>
+            <input type="range" id="ctrl-zoom-speed" min="0" max="100" value="50" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Rotation Effect ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🔄</div>
+          <span class="card-title">Rotation Effect</span>
+        </div>
+        <div class="toggle-container">
+          <span class="toggle-label">Enable Rotation</span>
+          <label class="toggle">
+            <input type="checkbox" id="ctrl-rot-enable" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="effect-controls" id="rotation-controls">
+          <div class="control-group">
+            <div class="control-label">Direction</div>
+            <div class="btn-group" id="ctrl-rot-dir">
+              <button class="active" data-value="cw">Clockwise</button>
+              <button data-value="ccw">Counter-CW</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <div class="control-label">
+              Speed
+              <span class="control-value" id="val-rot-speed">5°/s</span>
+            </div>
+            <input type="range" id="ctrl-rot-speed" min="1" max="30" value="5" step="1" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Pan Effect ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">↔️</div>
+          <span class="card-title">Pan Effect</span>
+        </div>
+        <div class="toggle-container">
+          <span class="toggle-label">Enable Pan</span>
+          <label class="toggle">
+            <input type="checkbox" id="ctrl-pan-enable" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="effect-controls" id="pan-controls">
+          <div class="control-group">
+            <div class="control-label">Direction</div>
+            <select id="ctrl-pan-dir">
+              <option value="left">← Left</option>
+              <option value="right" selected>→ Right</option>
+              <option value="up">↑ Up</option>
+              <option value="down">↓ Down</option>
+              <option value="upleft">↖ Up-Left</option>
+              <option value="upright">↗ Up-Right</option>
+              <option value="downleft">↙ Down-Left</option>
+              <option value="downright">↘ Down-Right</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <div class="control-label">
+              Speed
+              <span class="control-value" id="val-pan-speed">50%</span>
+            </div>
+            <input type="range" id="ctrl-pan-speed" min="0" max="100" value="50" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 3D Flyby & Parallax ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-icon">🚀</div>
+          <span class="card-title">3D Flyby & Stars</span>
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            Flyby Speed
+            <span class="control-value" id="val-flyby-speed">50%</span>
+          </div>
+          <input type="range" id="ctrl-flyby-speed" min="0" max="100" value="50" />
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            3D Depth / Parallax
+            <span class="control-value" id="val-parallax">70%</span>
+          </div>
+          <input type="range" id="ctrl-parallax" min="0" max="100" value="70" />
+        </div>
+        <div class="toggle-container">
+          <span class="toggle-label">Star Twinkle</span>
+          <label class="toggle">
+            <input type="checkbox" id="ctrl-twinkle-enable" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="effect-controls visible" id="twinkle-controls">
+          <div class="control-group">
+            <div class="control-label">
+              Twinkle Intensity
+              <span class="control-value" id="val-twinkle">50%</span>
+            </div>
+            <input type="range" id="ctrl-twinkle" min="0" max="100" value="50" />
+          </div>
+        </div>
+        <div class="toggle-container" style="margin-top:var(--space-sm)">
+          <span class="toggle-label">Vignette Overlay</span>
+          <label class="toggle">
+            <input type="checkbox" id="ctrl-vignette" checked />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ═══ Preview Area (Right) ═══ -->
+    <main class="preview-area">
+
+      <div class="preview-container" id="preview-container">
+        <canvas id="preview-canvas" width="1920" height="1080"></canvas>
+        <div class="preview-placeholder" id="preview-placeholder">
+          <div class="placeholder-icon">🌌</div>
+          <h3>Upload a starless image to begin</h3>
+          <p>Your animated preview will appear here with a 3D parallax star field effect</p>
+        </div>
+        <div class="preview-status" id="preview-status">
+          <span class="status-dot"></span>
+          <span id="preview-status-text">Preview</span>
+        </div>
+        <!-- Loading State Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+          <div class="loading-spinner"></div>
+          <div class="loading-message" id="loading-message">Processing image...</div>
+        </div>
+      </div>
+
+      <!-- Timeline / Scrubber -->
+      <div class="timeline-container" id="timeline" style="display:none">
+        <span class="timeline-time" id="time-current">0:00</span>
+        <input type="range" id="timeline-scrubber" min="0" max="1000" value="0" />
+        <span class="timeline-time" id="time-total">0:10</span>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-bar">
+        <button class="btn btn-secondary" id="btn-preview" disabled>
+          <span class="btn-icon">▶</span> Preview
+        </button>
+        <button class="btn btn-secondary" id="btn-stop" style="display:none">
+          <span class="btn-icon">⏹</span> Stop
+        </button>
+        <button class="btn btn-export" id="btn-export" disabled>
+          <span class="btn-icon">📹</span> Export Video
+        </button>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-container" id="progress-container">
+        <div class="progress-bar-wrapper">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-text" id="progress-text">Rendering... 0%</div>
+      </div>
+
+      <!-- Download Result -->
+      <div class="download-result" id="download-result">
+        <video id="result-video" controls muted loop></video>
+        <div class="download-info">
+          <h4>✓ Video Ready!</h4>
+          <p id="result-info">Your animation has been exported.</p>
+          <button class="btn btn-export" id="btn-download" style="margin-top:var(--space-sm)">
+            <span class="btn-icon">💾</span> Download
+          </button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

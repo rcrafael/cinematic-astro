@@ -1,0 +1,17 @@
+{
+  "name": "cinematic-astro",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "mp4-muxer": "^5.2.2"
+  }
+}
