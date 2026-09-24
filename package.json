@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "html-minifier-terser": "^7.2.0",
+    "javascript-obfuscator": "^5.8.0",
+    "terser": "^5.51.2",
     "vite": "^8.3.0"
   },
   "dependencies": {
