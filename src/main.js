@@ -9,6 +9,7 @@ import { loadImageWithFallback } from './image-loader.js';
 import { generateStarField, extractStarsFromMask } from './star-generator.js';
 import { AnimationEngine } from './animation-engine.js';
 import { VideoRecorder } from './video-recorder.js';
+import { initPWA } from './pwa.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // Aspect Ratio Definitions
@@ -1331,6 +1332,7 @@ function init() {
   });
 
   updateButtons();
+  initPWA();
 }
 
 // Boot
