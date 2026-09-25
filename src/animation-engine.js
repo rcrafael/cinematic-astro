@@ -118,16 +118,16 @@ export class AnimationEngine {
     const flybyIntensity = config.parallaxIntensity !== undefined ? config.parallaxIntensity : 0.7;
     const flybySpeed = config.flybySpeed !== undefined ? config.flybySpeed : 0.5;
 
-    // DSO Zoom: stately, majestic zoom on deep background nebula
-    // Does NOT out-zoom the foreground stars!
+    // DSO Zoom: cinematic dynamic zoom on background nebula and star field
     let dsoZoom = 1.0;
     if (config.zoomEnabled) {
-      const zoomRatePerSec = 0.006 + config.zoomSpeed * 0.016; // 0.6% to 2.2% per sec
+      // Dynamic range from gentle (1.5%/s) up to fast, dramatic zoom (28%/s at 100%)
+      const zoomRatePerSec = 0.015 + Math.pow(config.zoomSpeed, 1.25) * 0.265;
       if (config.zoomDirection === 'in') {
         dsoZoom = 1.0 + elapsedSec * zoomRatePerSec;
       } else {
         const totalZoom = config.duration * zoomRatePerSec;
-        dsoZoom = (1.0 + totalZoom) - elapsedSec * zoomRatePerSec;
+        dsoZoom = Math.max(0.3, (1.0 + totalZoom) - elapsedSec * zoomRatePerSec);
       }
     } else {
       const naturalZoomRate = 0.005 * flybyIntensity;
@@ -245,8 +245,8 @@ export class AnimationEngine {
         starShiftX = -camX * (1.6 / zEff);
         starShiftY = -camY * (1.6 / zEff);
 
-        const dx = (origX - cx) * scale;
-        const dy = (origY - cy) * scale;
+        const dx = (origX - cx) * scale * dsoZoom;
+        const dy = (origY - cy) * scale * dsoZoom;
 
         sx = cx + dx + starShiftX;
         sy = cy + dy + starShiftY;
@@ -275,8 +275,8 @@ export class AnimationEngine {
           wrapY = ry * h;
         }
 
-        const dx = (wrapX - cx) * scale;
-        const dy = (wrapY - cy) * scale;
+        const dx = (wrapX - cx) * scale * dsoZoom;
+        const dy = (wrapY - cy) * scale * dsoZoom;
 
         sx = cx + dx + starShiftX;
         sy = cy + dy + starShiftY;
@@ -317,7 +317,7 @@ export class AnimationEngine {
       }
 
       const starScaleFactor = !this.isProcedural ? clamp(Math.pow(userScale, 0.5), 0.6, 2.5) : 1.0;
-      const apparentRadius = star.radius * sizeFactor * starScaleFactor;
+      const apparentRadius = star.radius * sizeFactor * starScaleFactor * Math.sqrt(dsoZoom);
 
       renderStarPSF(ctx, sx, sy, apparentRadius, star.r, star.g, star.b, finalAlpha);
     }
