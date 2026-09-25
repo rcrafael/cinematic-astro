@@ -34,12 +34,18 @@ export class AnimationEngine {
    * @param {HTMLCanvasElement} dsoCanvas - The starless DSO image as canvas
    * @param {Object|Array} starData - { stars: Star3D[], baseMaskCanvas?: HTMLCanvasElement } or Star3D[][]
    * @param {AnimationConfig} config
+   * @param {Object} [framing] - User framing { scale: 1.0, offsetX: 0, offsetY: 0 }
    */
-  constructor(outputCanvas, dsoCanvas, starData, config) {
+  constructor(outputCanvas, dsoCanvas, starData, config, framing = {}) {
     this.canvas = outputCanvas;
     this.ctx = outputCanvas.getContext('2d');
     this.dsoCanvas = dsoCanvas;
     this.config = config;
+    this.framing = {
+      scale: framing.scale ?? 1.0,
+      offsetX: framing.offsetX ?? 0,
+      offsetY: framing.offsetY ?? 0,
+    };
 
     this.width = outputCanvas.width;
     this.height = outputCanvas.height;
@@ -63,25 +69,6 @@ export class AnimationEngine {
       this.isProcedural = true;
     }
 
-    // Pre-render DSO to padded canvas for smooth zoom/pan headroom without edge artifacts
-    this.dsoPadding = 1.8;
-    this.dsoPaddedCanvas = createOffscreenCanvas(
-      Math.round(this.width * this.dsoPadding),
-      Math.round(this.height * this.dsoPadding)
-    );
-    const dsoCtx = this.dsoPaddedCanvas.getContext('2d');
-    const dsoW = this.dsoCanvas.width;
-    const dsoH = this.dsoCanvas.height;
-    const dsoScale = Math.max(
-      (this.width * this.dsoPadding) / dsoW,
-      (this.height * this.dsoPadding) / dsoH
-    );
-    const drawW = dsoW * dsoScale;
-    const drawH = dsoH * dsoScale;
-    const drawX = (this.width * this.dsoPadding - drawW) / 2;
-    const drawY = (this.height * this.dsoPadding - drawH) / 2;
-    dsoCtx.drawImage(this.dsoCanvas, drawX, drawY, drawW, drawH);
-
     // Animation state
     this.isPlaying = false;
     this.isPreviewing = false;
@@ -92,6 +79,13 @@ export class AnimationEngine {
 
     // Easing function
     this.easingFn = Easing[config.easing] || Easing.easeInOutCubic;
+  }
+
+  /**
+   * Dynamically update image framing (scale, offset) without recreating engine.
+   */
+  updateFraming(framing) {
+    this.framing = { ...this.framing, ...framing };
   }
 
   /**
@@ -176,6 +170,14 @@ export class AnimationEngine {
     const dsoShiftX = -camX * 0.15;
     const dsoShiftY = -camY * 0.15;
 
+    const dsoW = this.dsoCanvas.width;
+    const dsoH = this.dsoCanvas.height;
+    const baseScale = Math.max(w / dsoW, h / dsoH);
+    const userScale = this.framing.scale || 1.0;
+    const effectiveScale = baseScale * userScale;
+    const userOffsetX = this.framing.offsetX || 0;
+    const userOffsetY = this.framing.offsetY || 0;
+
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(rotation);
@@ -185,10 +187,12 @@ export class AnimationEngine {
       -cy + dsoShiftY
     );
 
-    // Draw padded DSO centered
-    const offsetX = -(this.dsoPaddedCanvas.width - w) / 2;
-    const offsetY = -(this.dsoPaddedCanvas.height - h) / 2;
-    ctx.drawImage(this.dsoPaddedCanvas, offsetX, offsetY);
+    const drawW = dsoW * effectiveScale;
+    const drawH = dsoH * effectiveScale;
+    const drawX = cx + userOffsetX - drawW / 2;
+    const drawY = cy + userOffsetY - drawH / 2;
+
+    ctx.drawImage(this.dsoCanvas, drawX, drawY, drawW, drawH);
     ctx.restore();
 
     // ── 3. 3D Stars Flyby Parallax ───────────────────────────
@@ -198,6 +202,9 @@ export class AnimationEngine {
     const dZ = elapsedSec * flybyVelocity;
 
     ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+    ctx.translate(-cx, -cy);
     ctx.globalCompositeOperation = 'screen';
 
     const minZ = 0.15;
@@ -218,6 +225,18 @@ export class AnimationEngine {
       // At t=0, camX = 0, so starShift = 0.
       let starShiftX, starShiftY;
 
+      // Initial base position
+      let origX, origY;
+      if (!this.isProcedural) {
+        // Star mask: mapped accurately to DSO image framing
+        origX = cx + userOffsetX + (star.x - 0.5) * dsoW * effectiveScale;
+        origY = cy + userOffsetY + (star.y - 0.5) * dsoH * effectiveScale;
+      } else {
+        // Procedural star field: spans the full output canvas frame
+        origX = star.x * w;
+        origY = star.y * h;
+      }
+
       if (starDZ < z0 - minZ) {
         // ── Cycle 0: Initial flight from original coordinates ──
         zEff = z0 - starDZ;
@@ -226,8 +245,6 @@ export class AnimationEngine {
         starShiftX = -camX * (1.6 / zEff);
         starShiftY = -camY * (1.6 / zEff);
 
-        const origX = star.x * w;
-        const origY = star.y * h;
         const dx = (origX - cx) * scale;
         const dy = (origY - cy) * scale;
 
@@ -249,8 +266,14 @@ export class AnimationEngine {
         starShiftY = -camY * (1.6 / zEff);
 
         const [rx, ry] = getCycleOffset(star.seed || i, cycle);
-        const wrapX = rx * w;
-        const wrapY = ry * h;
+        let wrapX, wrapY;
+        if (!this.isProcedural) {
+          wrapX = cx + userOffsetX + (rx - 0.5) * dsoW * effectiveScale;
+          wrapY = cy + userOffsetY + (ry - 0.5) * dsoH * effectiveScale;
+        } else {
+          wrapX = rx * w;
+          wrapY = ry * h;
+        }
 
         const dx = (wrapX - cx) * scale;
         const dy = (wrapY - cy) * scale;
@@ -293,7 +316,8 @@ export class AnimationEngine {
         sizeFactor = clamp(Math.pow(baseRatio, 0.88), 0.40, 5.2);
       }
 
-      const apparentRadius = star.radius * sizeFactor;
+      const starScaleFactor = !this.isProcedural ? clamp(Math.pow(userScale, 0.5), 0.6, 2.5) : 1.0;
+      const apparentRadius = star.radius * sizeFactor * starScaleFactor;
 
       renderStarPSF(ctx, sx, sy, apparentRadius, star.r, star.g, star.b, finalAlpha);
     }

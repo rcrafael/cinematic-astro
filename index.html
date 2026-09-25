@@ -63,6 +63,19 @@
           </div>
           <input type="range" id="ctrl-starless-stretch-level" min="0" max="100" value="50" />
         </div>
+        <!-- Starless Image Framing / Scale in Preview -->
+        <div class="control-group" id="group-starless-framing" style="margin-top:var(--space-sm)">
+          <div class="control-label" style="font-size:0.75rem">
+            <span>Image Zoom in Preview</span>
+            <span class="control-value" id="val-starless-scale">100%</span>
+          </div>
+          <input type="range" id="ctrl-starless-scale" min="25" max="300" value="100" />
+          <div class="framing-quick-actions">
+            <button type="button" class="btn-micro" id="btn-scale-fit" title="Fit entire image inside frame">Fit</button>
+            <button type="button" class="btn-micro" id="btn-scale-fill" title="Fill frame with image">Fill</button>
+            <button type="button" class="btn-micro" id="btn-scale-reset" title="Reset zoom and center position">Reset</button>
+          </div>
+        </div>
       </div>
 
       <!-- ── Upload: Star Mask ── -->
@@ -142,6 +155,34 @@
             <span class="control-value" id="val-duration">10s</span>
           </div>
           <input type="range" id="ctrl-duration" min="10" max="30" value="10" step="1" />
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            <span>Aspect Ratio</span>
+            <span class="aspect-detected-badge" id="badge-aspect-ratio" style="display:none">Auto-detected</span>
+          </div>
+          <div class="aspect-btn-grid" id="ctrl-aspect-ratio">
+            <button type="button" class="aspect-pill active" data-ratio="16:9" title="16:9 Landscape (YouTube, Desktop, TV)">
+              <span class="aspect-pill-box aspect-box-16-9"></span>
+              <span class="aspect-pill-ratio">16:9</span>
+              <span class="aspect-pill-desc">Landscape</span>
+            </button>
+            <button type="button" class="aspect-pill" data-ratio="9:16" title="9:16 Vertical (Reels, Shorts, Stories, TikTok)">
+              <span class="aspect-pill-box aspect-box-9-16"></span>
+              <span class="aspect-pill-ratio">9:16</span>
+              <span class="aspect-pill-desc">Vertical</span>
+            </button>
+            <button type="button" class="aspect-pill" data-ratio="4:3" title="4:3 Standard (Classic Astrophotography Sensor)">
+              <span class="aspect-pill-box aspect-box-4-3"></span>
+              <span class="aspect-pill-ratio">4:3</span>
+              <span class="aspect-pill-desc">Standard</span>
+            </button>
+            <button type="button" class="aspect-pill" data-ratio="1:1" title="1:1 Square (Instagram, Square Feed)">
+              <span class="aspect-pill-box aspect-box-1-1"></span>
+              <span class="aspect-pill-ratio">1:1</span>
+              <span class="aspect-pill-desc">Square</span>
+            </button>
+          </div>
         </div>
         <div class="control-group">
           <div class="control-label">Resolution</div>
@@ -330,6 +371,19 @@
         <div class="preview-status" id="preview-status">
           <span class="status-dot"></span>
           <span id="preview-status-text">Preview</span>
+        </div>
+        <!-- Floating Framing Toolbar (Zoom In/Out, Fit, Fill, Reset) -->
+        <div class="preview-framing-bar" id="preview-framing-bar" style="display:none">
+          <button type="button" class="framing-btn" id="btn-preview-zoom-out" title="Zoom Out image (or Scroll down)">−</button>
+          <span class="framing-zoom-badge" id="badge-preview-zoom" title="Image zoom scale">100%</span>
+          <button type="button" class="framing-btn" id="btn-preview-zoom-in" title="Zoom In image (or Scroll up)">+</button>
+          <div class="framing-bar-sep"></div>
+          <button type="button" class="framing-btn-text" id="btn-preview-fit" title="Fit entire image inside frame">Fit</button>
+          <button type="button" class="framing-btn-text" id="btn-preview-fill" title="Fill frame with image">Fill</button>
+          <button type="button" class="framing-btn-text" id="btn-preview-reset" title="Reset image zoom & center">Reset</button>
+        </div>
+        <div class="preview-framing-hint" id="preview-framing-hint" style="display:none">
+          <span>🖱️ Scroll to zoom • Drag to pan</span>
         </div>
         <!-- Loading State Overlay -->
         <div class="loading-overlay" id="loading-overlay">

@@ -599,16 +599,251 @@ select option {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  aspect-ratio: 16/9;
   display: flex;
   align-items: center;
   justify-content: center;
+  margin: 0 auto;
+  aspect-ratio: var(--aspect-ratio, 16 / 9);
+  width: 100%;
+  max-height: min(650px, calc(100vh - 220px));
+  max-width: min(100%, calc(min(650px, calc(100vh - 220px)) * var(--aspect-factor, 1.7778)));
+  box-shadow: var(--shadow-lg), 0 0 35px rgba(0, 0, 0, 0.7);
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+  transition: aspect-ratio var(--transition-base), max-width var(--transition-base);
+}
+
+.preview-container.is-dragging {
+  cursor: grabbing;
 }
 
 .preview-container canvas {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Aspect Ratio Selector */
+.aspect-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: var(--bg-input);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.aspect-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-body);
+}
+
+.aspect-pill:hover:not(.active) {
+  background: rgba(91, 124, 250, 0.08);
+  color: var(--text-primary);
+  border-color: rgba(91, 124, 250, 0.2);
+}
+
+.aspect-pill.active {
+  background: linear-gradient(135deg, rgba(91, 124, 250, 0.28), rgba(126, 91, 250, 0.35));
+  border-color: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(91, 124, 250, 0.35);
+}
+
+.aspect-pill-box {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.aspect-box-16-9 {
+  width: 18px;
+  height: 10px;
+}
+
+.aspect-box-9-16 {
+  width: 10px;
+  height: 18px;
+}
+
+.aspect-box-4-3 {
+  width: 16px;
+  height: 12px;
+}
+
+.aspect-box-1-1 {
+  width: 13px;
+  height: 13px;
+}
+
+.aspect-pill-ratio {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.aspect-pill-desc {
+  font-size: 0.62rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.aspect-detected-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent-success);
+  background: rgba(77, 255, 145, 0.12);
+  border: 1px solid rgba(77, 255, 145, 0.3);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  animation: fadeIn 0.3s ease;
+}
+
+/* Framing Quick Action Buttons in sidebar */
+.framing-quick-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-micro {
+  flex: 1;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-micro:hover {
+  background: rgba(91, 124, 250, 0.2);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+/* Floating Framing Bar on preview */
+.preview-framing-bar {
+  position: absolute;
+  bottom: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(10, 14, 28, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  z-index: 15;
+  pointer-events: auto;
+  opacity: 0.9;
+  transition: opacity var(--transition-fast);
+}
+
+.preview-framing-bar:hover {
+  opacity: 1;
+  border-color: var(--border-accent);
+}
+
+.framing-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 50%;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.framing-btn:hover {
+  background: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(91, 124, 250, 0.4);
+}
+
+.framing-zoom-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  padding: 0 6px;
+  min-width: 44px;
+  text-align: center;
+  cursor: default;
+}
+
+.framing-bar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-subtle);
+  margin: 0 4px;
+}
+
+.framing-btn-text {
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.framing-btn-text:hover {
+  background: rgba(91, 124, 250, 0.2);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+
+.preview-framing-hint {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 10;
+  transition: opacity 0.5s ease;
 }
 
 .preview-placeholder {
