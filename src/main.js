@@ -136,14 +136,16 @@ const el = {
   btnScaleFill: $('#btn-scale-fill'),
   btnScaleReset: $('#btn-scale-reset'),
 
-  previewFramingBar: $('#preview-framing-bar'),
-  previewFramingHint: $('#preview-framing-hint'),
-  btnPreviewZoomOut: $('#btn-preview-zoom-out'),
-  btnPreviewZoomIn: $('#btn-preview-zoom-in'),
-  badgePreviewZoom: $('#badge-preview-zoom'),
-  btnPreviewFit: $('#btn-preview-fit'),
-  btnPreviewFill: $('#btn-preview-fill'),
-  btnPreviewReset: $('#btn-preview-reset'),
+  // Fullscreen Elements
+  btnFullscreen: $('#btn-fullscreen'),
+  btnActionFullscreen: $('#btn-action-fullscreen'),
+  fullscreenHud: $('#fullscreen-hud'),
+  btnFsPlay: $('#btn-fs-play'),
+  fsPlayIcon: $('#fs-play-icon'),
+  btnFsClose: $('#btn-fs-close'),
+  fsTimeCurrent: $('#fs-time-current'),
+  fsTimeTotal: $('#fs-time-total'),
+  fsTimelineScrubber: $('#fs-timeline-scrubber'),
 
   // Controls
   ctrlDuration: $('#ctrl-duration'),
@@ -370,7 +372,6 @@ function onFramingChanged() {
   const pct = Math.round(state.framing.scale * 100);
   if (el.valStarlessScale) el.valStarlessScale.textContent = `${pct}%`;
   if (el.ctrlStarlessScale) el.ctrlStarlessScale.value = pct;
-  if (el.badgePreviewZoom) el.badgePreviewZoom.textContent = `${pct}%`;
 
   if (state.engine) {
     state.engine.updateFraming(state.framing);
@@ -441,22 +442,49 @@ function setupPreviewInteractions() {
     onFramingChanged();
   }, { passive: false });
 
-  // Pointer drag to pan image in preview
+  const activePointers = new Map();
+  let initialPinchDist = 0;
+  let initialPinchScale = 1;
+
+  // Pointer drag & multi-touch pinch to zoom/pan image in preview
   container.addEventListener('pointerdown', (e) => {
     if (!state.starlessCanvas) return;
-    if (e.target.closest('#preview-framing-bar') || e.target.closest('button')) return;
+    if (e.target.closest('button') || e.target.closest('#fullscreen-hud')) return;
 
-    isDragging = true;
-    container.classList.add('is-dragging');
-    container.setPointerCapture(e.pointerId);
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    startX = e.clientX;
-    startY = e.clientY;
-    initialOffsetX = state.framing.offsetX;
-    initialOffsetY = state.framing.offsetY;
+    if (activePointers.size === 1) {
+      isDragging = true;
+      container.classList.add('is-dragging');
+      try { container.setPointerCapture(e.pointerId); } catch (_) {}
+
+      startX = e.clientX;
+      startY = e.clientY;
+      initialOffsetX = state.framing.offsetX;
+      initialOffsetY = state.framing.offsetY;
+    } else if (activePointers.size === 2) {
+      // 2-finger pinch to zoom on mobile
+      isDragging = false;
+      const pts = Array.from(activePointers.values());
+      initialPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      initialPinchScale = state.framing.scale;
+    }
   });
 
   container.addEventListener('pointermove', (e) => {
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size === 2) {
+      // Pinch to zoom
+      const pts = Array.from(activePointers.values());
+      const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+      const zoomRatio = currentDist / initialPinchDist;
+      state.framing.scale = clamp(initialPinchScale * zoomRatio, 0.25, 4.0);
+      onFramingChanged();
+      return;
+    }
+
     if (!isDragging) return;
 
     const rect = container.getBoundingClientRect();
@@ -472,21 +500,29 @@ function setupPreviewInteractions() {
     onFramingChanged();
   });
 
-  const stopDrag = (e) => {
-    if (isDragging) {
+  const stopPointer = (e) => {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size === 0) {
       isDragging = false;
       container.classList.remove('is-dragging');
       try { container.releasePointerCapture(e.pointerId); } catch (_) {}
+    } else if (activePointers.size === 1) {
+      const remaining = Array.from(activePointers.values())[0];
+      startX = remaining.x;
+      startY = remaining.y;
+      initialOffsetX = state.framing.offsetX;
+      initialOffsetY = state.framing.offsetY;
+      isDragging = true;
     }
   };
 
-  container.addEventListener('pointerup', stopDrag);
-  container.addEventListener('pointercancel', stopDrag);
+  container.addEventListener('pointerup', stopPointer);
+  container.addEventListener('pointercancel', stopPointer);
 
   // Double-click resets framing
   container.addEventListener('dblclick', (e) => {
     if (!state.starlessCanvas) return;
-    if (e.target.closest('#preview-framing-bar') || e.target.closest('button')) return;
+    if (e.target.closest('button') || e.target.closest('#fullscreen-hud')) return;
     resetFraming();
   });
 }
@@ -624,7 +660,6 @@ function initEngine() {
   el.previewPlaceholder.style.display = 'none';
   el.previewStatus.classList.add('visible');
   el.previewStatusText.textContent = 'Ready';
-  if (el.previewFramingBar) el.previewFramingBar.style.display = 'flex';
 
   updateButtons();
   updateTimeline();
@@ -637,7 +672,7 @@ function rebuildEngine() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Preview Controls
+// Preview Controls & Fullscreen Mode
 // ═══════════════════════════════════════════════════════════════════
 
 function startPreview() {
@@ -647,6 +682,7 @@ function startPreview() {
   el.btnPreview.style.display = 'none';
   el.btnStop.style.display = 'inline-flex';
   el.btnStop.disabled = false; // Ensure clickable!
+  if (el.fsPlayIcon) el.fsPlayIcon.textContent = '⏸';
   el.previewStatusText.textContent = 'Previewing (3D Flyby)';
   el.previewStatus.classList.add('visible');
 
@@ -657,8 +693,15 @@ function startPreview() {
     if (!state.isPreviewing) return;
     const elapsed = (performance.now() - startTime) / 1000;
     const progress = (elapsed % dur) / dur;
-    el.timelineScrubber.value = Math.round(progress * 1000);
-    el.timeCurrent.textContent = formatTime(elapsed % dur);
+    const scrubberVal = Math.round(progress * 1000);
+    const timeFormatted = formatTime(elapsed % dur);
+
+    el.timelineScrubber.value = scrubberVal;
+    el.timeCurrent.textContent = timeFormatted;
+
+    if (el.fsTimelineScrubber) el.fsTimelineScrubber.value = scrubberVal;
+    if (el.fsTimeCurrent) el.fsTimeCurrent.textContent = timeFormatted;
+
     requestAnimationFrame(onFrame);
   }
 
@@ -674,7 +717,121 @@ function stopPreview() {
   el.btnPreview.style.display = 'inline-flex';
   el.btnStop.style.display = 'none';
   el.btnStop.disabled = false;
+  if (el.fsPlayIcon) el.fsPlayIcon.textContent = '▶';
   el.previewStatusText.textContent = 'Ready';
+}
+
+function isFullscreen() {
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement ||
+    el.previewContainer?.classList.contains('is-fullscreen')
+  );
+}
+
+async function enterFullscreen() {
+  const container = el.previewContainer;
+  if (!container) return;
+
+  try {
+    if (container.requestFullscreen) {
+      await container.requestFullscreen();
+    } else if (container.webkitRequestFullscreen) {
+      await container.webkitRequestFullscreen();
+    } else if (container.mozRequestFullScreen) {
+      await container.mozRequestFullScreen();
+    } else if (container.msRequestFullscreen) {
+      await container.msRequestFullscreen();
+    } else {
+      container.classList.add('is-fullscreen');
+      updateFullscreenUI(true);
+    }
+  } catch (err) {
+    console.warn('Fullscreen request failed, using CSS fallback:', err);
+    container.classList.add('is-fullscreen');
+    updateFullscreenUI(true);
+  }
+}
+
+async function exitFullscreen() {
+  const container = el.previewContainer;
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        await document.mozCancelFullScreen();
+      } else if (document.msExitFullscreen) {
+        await document.msExitFullscreen();
+      }
+    }
+  } catch (err) {
+    console.warn('Exit fullscreen failed:', err);
+  }
+  if (container) {
+    container.classList.remove('is-fullscreen');
+    container.classList.remove('cursor-hidden');
+  }
+  updateFullscreenUI(false);
+}
+
+function toggleFullscreen() {
+  if (isFullscreen()) {
+    exitFullscreen();
+  } else {
+    enterFullscreen();
+  }
+}
+
+let hudTimer = null;
+function resetHudTimeout() {
+  clearTimeout(hudTimer);
+  if (!el.fullscreenHud || !isFullscreen()) return;
+  el.fullscreenHud.classList.remove('hud-hidden');
+  el.previewContainer?.classList.remove('cursor-hidden');
+
+  hudTimer = setTimeout(() => {
+    if (isFullscreen()) {
+      el.fullscreenHud?.classList.add('hud-hidden');
+      el.previewContainer?.classList.add('cursor-hidden');
+    }
+  }, 2500);
+}
+
+function updateFullscreenUI(inFs) {
+  const container = el.previewContainer;
+  if (!container) return;
+
+  const enterIcon = el.btnFullscreen?.querySelector('.fs-icon-enter');
+  const exitIcon = el.btnFullscreen?.querySelector('.fs-icon-exit');
+
+  if (enterIcon) enterIcon.style.display = inFs ? 'none' : 'block';
+  if (exitIcon) exitIcon.style.display = inFs ? 'block' : 'none';
+
+  if (el.btnFullscreen) {
+    el.btnFullscreen.title = inFs ? 'Exit Full Screen (Esc / F)' : 'Full Screen (F)';
+  }
+
+  if (el.btnActionFullscreen) {
+    const iconSpan = el.btnActionFullscreen.querySelector('.btn-icon');
+    if (iconSpan) iconSpan.textContent = inFs ? '✕' : '⛶';
+    const lastNode = el.btnActionFullscreen.childNodes[el.btnActionFullscreen.childNodes.length - 1];
+    if (lastNode && lastNode.nodeType === Node.TEXT_NODE) {
+      lastNode.nodeValue = inFs ? ' Exit Full Screen' : ' Full Screen';
+    }
+  }
+
+  if (inFs) {
+    resetHudTimeout();
+  } else {
+    clearTimeout(hudTimer);
+    if (el.fullscreenHud) el.fullscreenHud.classList.remove('hud-hidden');
+    container.classList.remove('cursor-hidden');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -795,6 +952,9 @@ function updateTimeline() {
   el.timeTotal.textContent = formatTime(dur);
   el.timeCurrent.textContent = '0:00';
   el.timelineScrubber.value = 0;
+  if (el.fsTimeTotal) el.fsTimeTotal.textContent = formatTime(dur);
+  if (el.fsTimeCurrent) el.fsTimeCurrent.textContent = '0:00';
+  if (el.fsTimelineScrubber) el.fsTimelineScrubber.value = 0;
 }
 
 function formatTime(seconds) {
@@ -849,16 +1009,6 @@ function init() {
       // Reset framing to default cover fit
       resetFraming();
 
-      if (el.previewFramingBar) el.previewFramingBar.style.display = 'flex';
-      if (el.previewFramingHint) {
-        el.previewFramingHint.style.display = 'block';
-        el.previewFramingHint.style.opacity = '1';
-        clearTimeout(el.previewFramingHint._hideTimer);
-        el.previewFramingHint._hideTimer = setTimeout(() => {
-          if (el.previewFramingHint) el.previewFramingHint.style.opacity = '0';
-        }, 4000);
-      }
-
       initEngine();
     },
     () => {
@@ -868,8 +1018,6 @@ function init() {
       el.previewPlaceholder.style.display = '';
       el.previewStatus.classList.remove('visible');
       el.timeline.style.display = 'none';
-      if (el.previewFramingBar) el.previewFramingBar.style.display = 'none';
-      if (el.previewFramingHint) el.previewFramingHint.style.display = 'none';
       if (el.badgeAspectRatio) el.badgeAspectRatio.style.display = 'none';
       updateButtons();
     }
@@ -1051,38 +1199,88 @@ function init() {
     });
   }
 
-  // ── Floating Framing Bar & Sidebar Framing Actions ──
-  if (el.btnPreviewZoomIn) {
-    el.btnPreviewZoomIn.addEventListener('click', (e) => {
+  // ── Fullscreen Controls & Actions ──
+  if (el.btnFullscreen) {
+    el.btnFullscreen.addEventListener('click', (e) => {
       e.stopPropagation();
-      setFramingScale(state.framing.scale * 1.15);
-    });
-  }
-  if (el.btnPreviewZoomOut) {
-    el.btnPreviewZoomOut.addEventListener('click', (e) => {
-      e.stopPropagation();
-      setFramingScale(state.framing.scale / 1.15);
-    });
-  }
-  if (el.btnPreviewFit) {
-    el.btnPreviewFit.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fitImageInFrame();
-    });
-  }
-  if (el.btnPreviewFill) {
-    el.btnPreviewFill.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fillImageInFrame();
-    });
-  }
-  if (el.btnPreviewReset) {
-    el.btnPreviewReset.addEventListener('click', (e) => {
-      e.stopPropagation();
-      resetFraming();
+      toggleFullscreen();
     });
   }
 
+  if (el.btnActionFullscreen) {
+    el.btnActionFullscreen.addEventListener('click', () => {
+      toggleFullscreen();
+    });
+  }
+
+  if (el.btnFsClose) {
+    el.btnFsClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exitFullscreen();
+    });
+  }
+
+  if (el.btnFsPlay) {
+    el.btnFsPlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.isPreviewing) {
+        stopPreview();
+      } else {
+        startPreview();
+      }
+    });
+  }
+
+  if (el.fsTimelineScrubber) {
+    el.fsTimelineScrubber.addEventListener('input', () => {
+      resetHudTimeout();
+      if (state.isPreviewing) stopPreview();
+      const val = el.fsTimelineScrubber.value;
+      el.timelineScrubber.value = val;
+      if (state.engine) {
+        const progress = parseInt(val) / 1000;
+        state.engine.renderAt(progress);
+        const dur = parseInt(el.ctrlDuration.value);
+        const timeStr = formatTime(progress * dur);
+        el.timeCurrent.textContent = timeStr;
+        if (el.fsTimeCurrent) el.fsTimeCurrent.textContent = timeStr;
+      }
+    });
+  }
+
+  if (el.previewContainer) {
+    el.previewContainer.addEventListener('pointermove', resetHudTimeout);
+    el.previewContainer.addEventListener('pointerdown', resetHudTimeout);
+  }
+
+  document.addEventListener('fullscreenchange', () => {
+    updateFullscreenUI(!!document.fullscreenElement);
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    updateFullscreenUI(!!document.webkitFullscreenElement);
+  });
+
+  // Global Keyboard Shortcuts (F = Fullscreen, Space = Play/Pause)
+  window.addEventListener('keydown', (e) => {
+    const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      toggleFullscreen();
+    } else if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (state.isPreviewing) {
+        stopPreview();
+      } else {
+        startPreview();
+      }
+    } else if (e.key === 'Escape' && el.previewContainer?.classList.contains('is-fullscreen')) {
+      exitFullscreen();
+    }
+  });
+
+  // ── Sidebar Starless Framing Controls ──
   if (el.ctrlStarlessScale) {
     el.ctrlStarlessScale.addEventListener('input', () => {
       const val = parseInt(el.ctrlStarlessScale.value);
@@ -1125,7 +1323,10 @@ function init() {
       const progress = parseInt(el.timelineScrubber.value) / 1000;
       state.engine.renderAt(progress);
       const dur = parseInt(el.ctrlDuration.value);
-      el.timeCurrent.textContent = formatTime(progress * dur);
+      const timeStr = formatTime(progress * dur);
+      el.timeCurrent.textContent = timeStr;
+      if (el.fsTimelineScrubber) el.fsTimelineScrubber.value = el.timelineScrubber.value;
+      if (el.fsTimeCurrent) el.fsTimeCurrent.textContent = timeStr;
     }
   });
 
