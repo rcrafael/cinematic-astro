@@ -4,10 +4,61 @@
  */
 
 import './style.css';
+import { clamp } from './utils.js';
 import { loadImageWithFallback } from './image-loader.js';
 import { generateStarField, extractStarsFromMask } from './star-generator.js';
 import { AnimationEngine } from './animation-engine.js';
 import { VideoRecorder } from './video-recorder.js';
+
+// ═══════════════════════════════════════════════════════════════════
+// Aspect Ratio Definitions
+// ═══════════════════════════════════════════════════════════════════
+const ASPECT_RATIOS = {
+  '16:9': {
+    name: '16:9',
+    sub: 'Landscape',
+    ratio: 16 / 9,
+    cssRatio: '16 / 9',
+    resolutions: [
+      { label: '1080p (1920×1080)', value: '1920x1080', tier: '1080p' },
+      { label: '1440p (2560×1440)', value: '2560x1440', tier: '1440p' },
+      { label: '4K (3840×2160)', value: '3840x2160', tier: '4K' },
+    ],
+  },
+  '9:16': {
+    name: '9:16',
+    sub: 'Vertical',
+    ratio: 9 / 16,
+    cssRatio: '9 / 16',
+    resolutions: [
+      { label: '1080p Vertical (1080×1920)', value: '1080x1920', tier: '1080p' },
+      { label: '1440p Vertical (1440×2560)', value: '1440x2560', tier: '1440p' },
+      { label: '4K Vertical (2160×3840)', value: '2160x3840', tier: '4K' },
+    ],
+  },
+  '4:3': {
+    name: '4:3',
+    sub: 'Standard',
+    ratio: 4 / 3,
+    cssRatio: '4 / 3',
+    resolutions: [
+      { label: '1080p (1440×1080)', value: '1440x1080', tier: '1080p' },
+      { label: '1440p (1920×1440)', value: '1920x1440', tier: '1440p' },
+      { label: '4K (2880×2160)', value: '2880x2160', tier: '4K' },
+    ],
+  },
+  '1:1': {
+    name: '1:1',
+    sub: 'Square',
+    ratio: 1 / 1,
+    cssRatio: '1 / 1',
+    resolutions: [
+      { label: '1080p Square (1080×1080)', value: '1080x1080', tier: '1080p' },
+      { label: '1440p Square (1440×1440)', value: '1440x1440', tier: '1440p' },
+      { label: '4K Square (2160×2160)', value: '2160x2160', tier: '4K' },
+    ],
+  },
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // State
@@ -27,6 +78,14 @@ const state = {
   isPreviewing: false,
   isExporting: false,
   resultUrl: null,
+
+  aspectRatio: '16:9',
+  qualityTier: '1080p',
+  framing: {
+    scale: 1.0,                // User zoom in preview (1.0 = base cover scale)
+    offsetX: 0,                // Pan offset X in canvas pixels
+    offsetY: 0,                // Pan offset Y in canvas pixels
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -67,6 +126,24 @@ const el = {
   previewContainer: $('#preview-container'),
   loadingOverlay: $('#loading-overlay'),
   loadingMessage: $('#loading-message'),
+
+  // Aspect Ratio & Framing Elements
+  ctrlAspectRatio: $('#ctrl-aspect-ratio'),
+  badgeAspectRatio: $('#badge-aspect-ratio'),
+  ctrlStarlessScale: $('#ctrl-starless-scale'),
+  valStarlessScale: $('#val-starless-scale'),
+  btnScaleFit: $('#btn-scale-fit'),
+  btnScaleFill: $('#btn-scale-fill'),
+  btnScaleReset: $('#btn-scale-reset'),
+
+  previewFramingBar: $('#preview-framing-bar'),
+  previewFramingHint: $('#preview-framing-hint'),
+  btnPreviewZoomOut: $('#btn-preview-zoom-out'),
+  btnPreviewZoomIn: $('#btn-preview-zoom-in'),
+  badgePreviewZoom: $('#badge-preview-zoom'),
+  btnPreviewFit: $('#btn-preview-fit'),
+  btnPreviewFill: $('#btn-preview-fill'),
+  btnPreviewReset: $('#btn-preview-reset'),
 
   // Controls
   ctrlDuration: $('#ctrl-duration'),
@@ -189,8 +266,229 @@ function getConfig() {
 }
 
 function getResolution() {
-  const [w, h] = el.ctrlResolution.value.split('x').map(Number);
+  if (el.ctrlResolution && el.ctrlResolution.value) {
+    const parts = el.ctrlResolution.value.split('x').map(Number);
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      return { width: parts[0], height: parts[1] };
+    }
+  }
+  const currentRatio = ASPECT_RATIOS[state.aspectRatio] || ASPECT_RATIOS['16:9'];
+  const res = currentRatio.resolutions[0];
+  const [w, h] = res.value.split('x').map(Number);
   return { width: w, height: h };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Aspect Ratio & Auto-Detection
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Detect the best matching aspect ratio for an uploaded image.
+ * Supported aspect ratios: 9:16, 4:3, 16:9, 1:1.
+ */
+function detectBestAspectRatio(width, height) {
+  const imageRatio = width / height;
+  if (imageRatio < 0.82) {
+    return '9:16';
+  } else if (imageRatio <= 1.18) {
+    return '1:1';
+  } else if (imageRatio < 1.55) {
+    return '4:3';
+  } else {
+    return '16:9';
+  }
+}
+
+function updateResolutionOptions(ratioKey) {
+  const arConfig = ASPECT_RATIOS[ratioKey];
+  if (!arConfig || !el.ctrlResolution) return;
+
+  const currentTier = state.qualityTier || '1080p';
+  el.ctrlResolution.innerHTML = '';
+
+  let matchedOption = null;
+  arConfig.resolutions.forEach((r, idx) => {
+    const opt = document.createElement('option');
+    opt.value = r.value;
+    opt.textContent = r.label;
+    opt.dataset.tier = r.tier;
+    if (r.tier === currentTier || (!matchedOption && idx === 0)) {
+      opt.selected = true;
+      matchedOption = opt;
+    }
+    el.ctrlResolution.appendChild(opt);
+  });
+}
+
+function setAspectRatio(ratioKey, isAuto = false) {
+  if (!ASPECT_RATIOS[ratioKey]) ratioKey = '16:9';
+  state.aspectRatio = ratioKey;
+
+  // Update Aspect Ratio UI pill buttons
+  if (el.ctrlAspectRatio) {
+    el.ctrlAspectRatio.querySelectorAll('.aspect-pill').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.ratio === ratioKey);
+    });
+  }
+
+  // Auto-detected badge feedback
+  if (el.badgeAspectRatio) {
+    if (isAuto && state.starlessCanvas) {
+      el.badgeAspectRatio.textContent = `Auto: ${ratioKey} (${state.starlessCanvas.width}×${state.starlessCanvas.height})`;
+      el.badgeAspectRatio.style.display = 'inline-block';
+    } else if (!isAuto) {
+      el.badgeAspectRatio.style.display = 'none';
+    }
+  }
+
+  // Update container CSS aspect ratio variables
+  const arConfig = ASPECT_RATIOS[ratioKey];
+  if (el.previewContainer) {
+    el.previewContainer.style.setProperty('--aspect-ratio', arConfig.cssRatio);
+    el.previewContainer.style.setProperty('--aspect-factor', arConfig.ratio);
+  }
+
+  // Update Resolution select dropdown options (preserving quality tier if possible)
+  updateResolutionOptions(ratioKey);
+
+  // Update canvas resolution dimensions
+  const res = getResolution();
+  el.previewCanvas.width = res.width;
+  el.previewCanvas.height = res.height;
+
+  // Rebuild engine if image loaded
+  if (state.starlessCanvas) {
+    initEngine();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Image Framing & Zoom in Preview
+// ═══════════════════════════════════════════════════════════════════
+
+function onFramingChanged() {
+  const pct = Math.round(state.framing.scale * 100);
+  if (el.valStarlessScale) el.valStarlessScale.textContent = `${pct}%`;
+  if (el.ctrlStarlessScale) el.ctrlStarlessScale.value = pct;
+  if (el.badgePreviewZoom) el.badgePreviewZoom.textContent = `${pct}%`;
+
+  if (state.engine) {
+    state.engine.updateFraming(state.framing);
+    if (!state.isPreviewing) {
+      const progress = parseInt(el.timelineScrubber?.value || 0) / 1000;
+      state.engine.renderAt(progress);
+    }
+  }
+}
+
+function setFramingScale(scale, resetOffsets = false) {
+  state.framing.scale = clamp(scale, 0.25, 4.0);
+  if (resetOffsets) {
+    state.framing.offsetX = 0;
+    state.framing.offsetY = 0;
+  }
+  onFramingChanged();
+}
+
+function fitImageInFrame() {
+  if (!state.starlessCanvas) return;
+  const { width: outW, height: outH } = getResolution();
+  const dsoW = state.starlessCanvas.width;
+  const dsoH = state.starlessCanvas.height;
+
+  const coverScale = Math.max(outW / dsoW, outH / dsoH);
+  const containScale = Math.min(outW / dsoW, outH / dsoH);
+
+  const scale = containScale / coverScale;
+  setFramingScale(scale, true);
+}
+
+function fillImageInFrame() {
+  setFramingScale(1.0, true);
+}
+
+function resetFraming() {
+  setFramingScale(1.0, true);
+}
+
+function setupPreviewInteractions() {
+  const container = el.previewContainer;
+  if (!container) return;
+
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialOffsetX = 0;
+  let initialOffsetY = 0;
+
+  // Mouse wheel to zoom image in preview
+  container.addEventListener('wheel', (e) => {
+    if (!state.starlessCanvas) return;
+    e.preventDefault();
+
+    const zoomStep = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+    const newScale = clamp(state.framing.scale * zoomStep, 0.25, 4.0);
+
+    const rect = container.getBoundingClientRect();
+    const mouseNormX = (e.clientX - rect.left) / rect.width - 0.5;
+    const mouseNormY = (e.clientY - rect.top) / rect.height - 0.5;
+    const scaleRatio = newScale / state.framing.scale;
+
+    state.framing.offsetX = state.framing.offsetX * scaleRatio + mouseNormX * el.previewCanvas.width * (1 - scaleRatio) * 0.25;
+    state.framing.offsetY = state.framing.offsetY * scaleRatio + mouseNormY * el.previewCanvas.height * (1 - scaleRatio) * 0.25;
+    state.framing.scale = newScale;
+
+    onFramingChanged();
+  }, { passive: false });
+
+  // Pointer drag to pan image in preview
+  container.addEventListener('pointerdown', (e) => {
+    if (!state.starlessCanvas) return;
+    if (e.target.closest('#preview-framing-bar') || e.target.closest('button')) return;
+
+    isDragging = true;
+    container.classList.add('is-dragging');
+    container.setPointerCapture(e.pointerId);
+
+    startX = e.clientX;
+    startY = e.clientY;
+    initialOffsetX = state.framing.offsetX;
+    initialOffsetY = state.framing.offsetY;
+  });
+
+  container.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+
+    const rect = container.getBoundingClientRect();
+    const scaleCanvasX = el.previewCanvas.width / rect.width;
+    const scaleCanvasY = el.previewCanvas.height / rect.height;
+
+    const dx = (e.clientX - startX) * scaleCanvasX;
+    const dy = (e.clientY - startY) * scaleCanvasY;
+
+    state.framing.offsetX = initialOffsetX + dx;
+    state.framing.offsetY = initialOffsetY + dy;
+
+    onFramingChanged();
+  });
+
+  const stopDrag = (e) => {
+    if (isDragging) {
+      isDragging = false;
+      container.classList.remove('is-dragging');
+      try { container.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  };
+
+  container.addEventListener('pointerup', stopDrag);
+  container.addEventListener('pointercancel', stopDrag);
+
+  // Double-click resets framing
+  container.addEventListener('dblclick', (e) => {
+    if (!state.starlessCanvas) return;
+    if (e.target.closest('#preview-framing-bar') || e.target.closest('button')) return;
+    resetFraming();
+  });
 }
 
 function getStarGenConfig() {
@@ -317,7 +615,8 @@ function initEngine() {
     el.previewCanvas,
     state.starlessCanvas,
     state.starData,
-    config
+    config,
+    state.framing
   );
 
   // Render first frame (at progress=0, stars are registered 100% with the DSO)
@@ -325,6 +624,7 @@ function initEngine() {
   el.previewPlaceholder.style.display = 'none';
   el.previewStatus.classList.add('visible');
   el.previewStatusText.textContent = 'Ready';
+  if (el.previewFramingBar) el.previewFramingBar.style.display = 'flex';
 
   updateButtons();
   updateTimeline();
@@ -410,16 +710,18 @@ async function exportVideo() {
     exportCanvas,
     state.starlessCanvas,
     state.starData,
-    config
+    config,
+    state.framing
   );
 
+  const maxDim = Math.max(width, height);
   // Initialize recorder
   state.recorder = new VideoRecorder(exportCanvas, {
     width,
     height,
     fps: config.fps,
     duration: config.duration,
-    videoBitrate: width >= 3840 ? 40_000_000 : width >= 2560 ? 25_000_000 : 15_000_000,
+    videoBitrate: maxDim >= 3840 ? 40_000_000 : maxDim >= 2560 ? 25_000_000 : 15_000_000,
   });
 
   try {
@@ -539,6 +841,24 @@ function init() {
     (canvas, file) => {
       state.starlessCanvas = canvas;
       state.starlessFile = file;
+
+      // Auto-detect resolution and select the best aspect ratio!
+      const bestRatio = detectBestAspectRatio(canvas.width, canvas.height);
+      setAspectRatio(bestRatio, true);
+
+      // Reset framing to default cover fit
+      resetFraming();
+
+      if (el.previewFramingBar) el.previewFramingBar.style.display = 'flex';
+      if (el.previewFramingHint) {
+        el.previewFramingHint.style.display = 'block';
+        el.previewFramingHint.style.opacity = '1';
+        clearTimeout(el.previewFramingHint._hideTimer);
+        el.previewFramingHint._hideTimer = setTimeout(() => {
+          if (el.previewFramingHint) el.previewFramingHint.style.opacity = '0';
+        }, 4000);
+      }
+
       initEngine();
     },
     () => {
@@ -548,6 +868,9 @@ function init() {
       el.previewPlaceholder.style.display = '';
       el.previewStatus.classList.remove('visible');
       el.timeline.style.display = 'none';
+      if (el.previewFramingBar) el.previewFramingBar.style.display = 'none';
+      if (el.previewFramingHint) el.previewFramingHint.style.display = 'none';
+      if (el.badgeAspectRatio) el.badgeAspectRatio.style.display = 'none';
       updateButtons();
     }
   );
@@ -716,8 +1039,69 @@ function init() {
   // Duration also updates timeline
   el.ctrlDuration.addEventListener('input', updateTimeline);
 
+  // ── Aspect Ratio Pills & Resolution Options ──
+  updateResolutionOptions(state.aspectRatio);
+  setupPreviewInteractions();
+
+  if (el.ctrlAspectRatio) {
+    el.ctrlAspectRatio.querySelectorAll('.aspect-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setAspectRatio(btn.dataset.ratio, false);
+      });
+    });
+  }
+
+  // ── Floating Framing Bar & Sidebar Framing Actions ──
+  if (el.btnPreviewZoomIn) {
+    el.btnPreviewZoomIn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setFramingScale(state.framing.scale * 1.15);
+    });
+  }
+  if (el.btnPreviewZoomOut) {
+    el.btnPreviewZoomOut.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setFramingScale(state.framing.scale / 1.15);
+    });
+  }
+  if (el.btnPreviewFit) {
+    el.btnPreviewFit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fitImageInFrame();
+    });
+  }
+  if (el.btnPreviewFill) {
+    el.btnPreviewFill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fillImageInFrame();
+    });
+  }
+  if (el.btnPreviewReset) {
+    el.btnPreviewReset.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetFraming();
+    });
+  }
+
+  if (el.ctrlStarlessScale) {
+    el.ctrlStarlessScale.addEventListener('input', () => {
+      const val = parseInt(el.ctrlStarlessScale.value);
+      state.framing.scale = val / 100;
+      onFramingChanged();
+    });
+  }
+  if (el.btnScaleFit) el.btnScaleFit.addEventListener('click', fitImageInFrame);
+  if (el.btnScaleFill) el.btnScaleFill.addEventListener('click', fillImageInFrame);
+  if (el.btnScaleReset) el.btnScaleReset.addEventListener('click', resetFraming);
+
   // Resolution change rebuilds
-  el.ctrlResolution.addEventListener('change', () => withLoading('Rebuilding resolution...', async () => rebuildEngine()));
+  el.ctrlResolution.addEventListener('change', () => {
+    const selectedOpt = el.ctrlResolution.selectedOptions[0];
+    if (selectedOpt && selectedOpt.dataset.tier) {
+      state.qualityTier = selectedOpt.dataset.tier;
+    }
+    withLoading('Rebuilding resolution...', async () => rebuildEngine());
+  });
   el.ctrlFps.addEventListener('change', rebuildEngine);
   el.ctrlEasing.addEventListener('change', rebuildEngine);
   el.ctrlPanDir.addEventListener('change', rebuildEngine);
