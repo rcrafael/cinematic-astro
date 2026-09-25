@@ -65,11 +65,18 @@ const ASPECT_RATIOS = {
 // State
 // ═══════════════════════════════════════════════════════════════════
 const state = {
-  starlessCanvas: null,        // HTMLCanvasElement with loaded DSO image
+  rawStarlessCanvas: null,     // HTMLCanvasElement with original loaded/stretched DSO image
+  starlessCanvas: null,        // HTMLCanvasElement with transformed DSO image
   starlessFile: null,          // File reference for re-processing
   starlessStretch: 'none',     // 'none' (Original) or 'auto' (Auto-Stretch)
   starlessStretchLevel: 0.5,   // 0.05 to 1.0 (midtone strength)
-  starmaskCanvas: null,        // HTMLCanvasElement with loaded star mask (or null)
+  starlessOrientation: {
+    rotation: 0,               // 0, 90, 180, 270 degrees
+    flipH: false,              // Flip horizontal
+    flipV: false,              // Flip vertical
+  },
+  rawStarmaskCanvas: null,     // HTMLCanvasElement with original loaded/stretched star mask (or null)
+  starmaskCanvas: null,        // HTMLCanvasElement with transformed star mask (or null)
   starmaskFile: null,          // File reference for re-processing
   starmaskStretch: 'none',     // 'none' (Original) or 'auto' (Auto-Stretch)
   starmaskStretchLevel: 0.5,   // 0.05 to 1.0 (midtone strength)
@@ -83,7 +90,7 @@ const state = {
   aspectRatio: '16:9',
   qualityTier: '1080p',
   framing: {
-    scale: 1.0,                // User zoom in preview (1.0 = base cover scale)
+    scale: 1.5,                // User zoom in preview (recommended safe scale default)
     offsetX: 0,                // Pan offset X in canvas pixels
     offsetY: 0,                // Pan offset Y in canvas pixels
   },
@@ -105,6 +112,11 @@ const el = {
   groupStarlessLevel: $('#group-starless-level'),
   ctrlStarlessStretchLevel: $('#ctrl-starless-stretch-level'),
   valStarlessStretch: $('#val-starless-stretch'),
+
+  // Starless orientation controls
+  ctrlStarlessRotate: $('#ctrl-starless-rotate'),
+  btnStarlessFlipH: $('#btn-starless-flip-h'),
+  btnStarlessFlipV: $('#btn-starless-flip-v'),
 
   uploadStarmask: $('#upload-starmask'),
   inputStarmask: $('#input-starmask'),
@@ -135,6 +147,7 @@ const el = {
   valStarlessScale: $('#val-starless-scale'),
   btnScaleFit: $('#btn-scale-fit'),
   btnScaleFill: $('#btn-scale-fill'),
+  btnScaleSafe: $('#btn-scale-safe'),
   btnScaleReset: $('#btn-scale-reset'),
 
   // Fullscreen Elements
@@ -392,6 +405,29 @@ function setFramingScale(scale, resetOffsets = false) {
   onFramingChanged();
 }
 
+function getRecommendedFramingScale() {
+  if (!state.starlessCanvas) return 1.5;
+  const { width: outW, height: outH } = getResolution();
+  const dsoW = state.starlessCanvas.width;
+  const dsoH = state.starlessCanvas.height;
+
+  // The diagonal of the canvas covers the maximum extent when rotated at any angle
+  const diag = Math.hypot(outW, outH);
+  // Base scale covers width & height without rotation
+  const baseScale = Math.max(outW / dsoW, outH / dsoH);
+  // Safe scale covers the diagonal circular envelope + 8% margin for camera pan & drift
+  const safeEffectiveScale = (diag * 1.08) / Math.min(dsoW, dsoH);
+  const recScale = safeEffectiveScale / baseScale;
+
+  // Clamp to practical range (1.25x to 2.5x, rounded to nearest 5%)
+  return clamp(Math.round(recScale * 20) / 20, 1.25, 2.5);
+}
+
+function applyRecommendedFraming() {
+  const recScale = getRecommendedFramingScale();
+  setFramingScale(recScale, true);
+}
+
 function fitImageInFrame() {
   if (!state.starlessCanvas) return;
   const { width: outW, height: outH } = getResolution();
@@ -410,7 +446,91 @@ function fillImageInFrame() {
 }
 
 function resetFraming() {
-  setFramingScale(1.0, true);
+  applyRecommendedFraming();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Image Orientation & Transforms (Rotate & Flip)
+// ═══════════════════════════════════════════════════════════════════
+
+function applyImageTransform(sourceCanvas, rotationDeg, flipH, flipV) {
+  if (!sourceCanvas) return null;
+  const rot = ((rotationDeg % 360) + 360) % 360;
+  if (rot === 0 && !flipH && !flipV) {
+    const c = document.createElement('canvas');
+    c.width = sourceCanvas.width;
+    c.height = sourceCanvas.height;
+    c.getContext('2d').drawImage(sourceCanvas, 0, 0);
+    return c;
+  }
+
+  const isRotated90 = (rot === 90 || rot === 270);
+  const targetW = isRotated90 ? sourceCanvas.height : sourceCanvas.width;
+  const targetH = isRotated90 ? sourceCanvas.width : sourceCanvas.height;
+
+  const transformedCanvas = document.createElement('canvas');
+  transformedCanvas.width = targetW;
+  transformedCanvas.height = targetH;
+  const ctx = transformedCanvas.getContext('2d');
+
+  ctx.save();
+  ctx.translate(targetW / 2, targetH / 2);
+  ctx.rotate((rot * Math.PI) / 180);
+  ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+  ctx.drawImage(sourceCanvas, -sourceCanvas.width / 2, -sourceCanvas.height / 2);
+  ctx.restore();
+
+  return transformedCanvas;
+}
+
+function updateStarlessThumbnail() {
+  if (!state.starlessCanvas) return;
+  const maxSize = 200;
+  const scale = Math.min(maxSize / state.starlessCanvas.width, maxSize / state.starlessCanvas.height, 1);
+  el.thumbStarless.width = Math.round(state.starlessCanvas.width * scale);
+  el.thumbStarless.height = Math.round(state.starlessCanvas.height * scale);
+  el.thumbStarless.getContext('2d').drawImage(state.starlessCanvas, 0, 0, el.thumbStarless.width, el.thumbStarless.height);
+}
+
+function updateStarmaskThumbnail() {
+  if (!state.starmaskCanvas) return;
+  const maxSize = 200;
+  const scale = Math.min(maxSize / state.starmaskCanvas.width, maxSize / state.starmaskCanvas.height, 1);
+  el.thumbStarmask.width = Math.round(state.starmaskCanvas.width * scale);
+  el.thumbStarmask.height = Math.round(state.starmaskCanvas.height * scale);
+  el.thumbStarmask.getContext('2d').drawImage(state.starmaskCanvas, 0, 0, el.thumbStarmask.width, el.thumbStarmask.height);
+}
+
+function updateTransformedImages() {
+  if (!state.rawStarlessCanvas) return;
+
+  const { rotation, flipH, flipV } = state.starlessOrientation;
+  state.starlessCanvas = applyImageTransform(state.rawStarlessCanvas, rotation, flipH, flipV);
+  updateStarlessThumbnail();
+
+  if (state.rawStarmaskCanvas) {
+    state.starmaskCanvas = applyImageTransform(state.rawStarmaskCanvas, rotation, flipH, flipV);
+    updateStarmaskThumbnail();
+  }
+
+  // Detect and update aspect ratio for new orientation if image dimensions flipped
+  const bestRatio = detectBestAspectRatio(state.starlessCanvas.width, state.starlessCanvas.height);
+  setAspectRatio(bestRatio, false);
+
+  // Apply recommended framing for new orientation dimensions
+  applyRecommendedFraming();
+
+  rebuildEngine();
+}
+
+function resetOrientationUI() {
+  if (el.ctrlStarlessRotate) {
+    el.ctrlStarlessRotate.querySelectorAll('button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.angle === '0');
+    });
+  }
+  if (el.btnStarlessFlipH) el.btnStarlessFlipH.classList.remove('active');
+  if (el.btnStarlessFlipV) el.btnStarlessFlipV.classList.remove('active');
 }
 
 function setupPreviewInteractions() {
@@ -1000,21 +1120,27 @@ function init() {
     el.thumbStarless, el.filenameStarless, el.removeStarless,
     () => ({ autoStretch: state.starlessStretch === 'auto', stretchLevel: state.starlessStretchLevel }),
     (canvas, file) => {
-      state.starlessCanvas = canvas;
+      state.rawStarlessCanvas = canvas;
       state.starlessFile = file;
+      state.starlessOrientation = { rotation: 0, flipH: false, flipV: false };
+      resetOrientationUI();
+      state.starlessCanvas = applyImageTransform(state.rawStarlessCanvas, 0, false, false);
 
       // Auto-detect resolution and select the best aspect ratio!
-      const bestRatio = detectBestAspectRatio(canvas.width, canvas.height);
+      const bestRatio = detectBestAspectRatio(state.starlessCanvas.width, state.starlessCanvas.height);
       setAspectRatio(bestRatio, true);
 
-      // Reset framing to default cover fit
-      resetFraming();
+      // Apply recommended zoom level to prevent black borders during rotation
+      applyRecommendedFraming();
 
       initEngine();
     },
     () => {
+      state.rawStarlessCanvas = null;
       state.starlessCanvas = null;
       state.starlessFile = null;
+      state.starlessOrientation = { rotation: 0, flipH: false, flipV: false };
+      resetOrientationUI();
       stopPreview();
       el.previewPlaceholder.style.display = '';
       el.previewStatus.classList.remove('visible');
@@ -1030,20 +1156,51 @@ function init() {
     el.thumbStarmask, el.filenameStarmask, el.removeStarmask,
     () => ({ autoStretch: state.starmaskStretch === 'auto', stretchLevel: state.starmaskStretchLevel }),
     async (canvas, file) => {
-      state.starmaskCanvas = canvas;
+      state.rawStarmaskCanvas = canvas;
       state.starmaskFile = file;
+      const { rotation, flipH, flipV } = state.starlessOrientation;
+      state.starmaskCanvas = applyImageTransform(state.rawStarmaskCanvas, rotation, flipH, flipV);
       el.starGenControls.classList.remove('visible');
       await withLoading('Extracting stars from mask for 3D flyby...', async () => {
         rebuildEngine();
       });
     },
     () => {
+      state.rawStarmaskCanvas = null;
       state.starmaskCanvas = null;
       state.starmaskFile = null;
       el.starGenControls.classList.add('visible');
       rebuildEngine();
     }
   );
+
+  // ── Starless Orientation Controls ──
+  if (el.ctrlStarlessRotate) {
+    el.ctrlStarlessRotate.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.ctrlStarlessRotate.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.starlessOrientation.rotation = parseInt(btn.dataset.angle, 10);
+        updateTransformedImages();
+      });
+    });
+  }
+
+  if (el.btnStarlessFlipH) {
+    el.btnStarlessFlipH.addEventListener('click', () => {
+      state.starlessOrientation.flipH = !state.starlessOrientation.flipH;
+      el.btnStarlessFlipH.classList.toggle('active', state.starlessOrientation.flipH);
+      updateTransformedImages();
+    });
+  }
+
+  if (el.btnStarlessFlipV) {
+    el.btnStarlessFlipV.addEventListener('click', () => {
+      state.starlessOrientation.flipV = !state.starlessOrientation.flipV;
+      el.btnStarlessFlipV.classList.toggle('active', state.starlessOrientation.flipV);
+      updateTransformedImages();
+    });
+  }
 
   // ── Starless Stretch Selector & Slider Listeners ──
   if (el.ctrlStarlessStretch) {
@@ -1081,12 +1238,10 @@ function init() {
           autoStretch: state.starlessStretch === 'auto',
           stretchLevel: state.starlessStretchLevel,
         });
-        state.starlessCanvas = newCanvas;
-        const maxSize = 200;
-        const scale = Math.min(maxSize / newCanvas.width, maxSize / newCanvas.height, 1);
-        el.thumbStarless.width = Math.round(newCanvas.width * scale);
-        el.thumbStarless.height = Math.round(newCanvas.height * scale);
-        el.thumbStarless.getContext('2d').drawImage(newCanvas, 0, 0, el.thumbStarless.width, el.thumbStarless.height);
+        state.rawStarlessCanvas = newCanvas;
+        const { rotation, flipH, flipV } = state.starlessOrientation;
+        state.starlessCanvas = applyImageTransform(newCanvas, rotation, flipH, flipV);
+        updateStarlessThumbnail();
         rebuildEngine();
       } catch (e) {
         console.error('Failed to reload starless image:', e);
@@ -1130,12 +1285,10 @@ function init() {
           autoStretch: state.starmaskStretch === 'auto',
           stretchLevel: state.starmaskStretchLevel,
         });
-        state.starmaskCanvas = newCanvas;
-        const maxSize = 200;
-        const scale = Math.min(maxSize / newCanvas.width, maxSize / newCanvas.height, 1);
-        el.thumbStarmask.width = Math.round(newCanvas.width * scale);
-        el.thumbStarmask.height = Math.round(newCanvas.height * scale);
-        el.thumbStarmask.getContext('2d').drawImage(newCanvas, 0, 0, el.thumbStarmask.width, el.thumbStarmask.height);
+        state.rawStarmaskCanvas = newCanvas;
+        const { rotation, flipH, flipV } = state.starlessOrientation;
+        state.starmaskCanvas = applyImageTransform(newCanvas, rotation, flipH, flipV);
+        updateStarmaskThumbnail();
         rebuildEngine();
       } catch (e) {
         console.error('Failed to reload starmask image:', e);
@@ -1291,6 +1444,7 @@ function init() {
   }
   if (el.btnScaleFit) el.btnScaleFit.addEventListener('click', fitImageInFrame);
   if (el.btnScaleFill) el.btnScaleFill.addEventListener('click', fillImageInFrame);
+  if (el.btnScaleSafe) el.btnScaleSafe.addEventListener('click', applyRecommendedFraming);
   if (el.btnScaleReset) el.btnScaleReset.addEventListener('click', resetFraming);
 
   // Resolution change rebuilds
