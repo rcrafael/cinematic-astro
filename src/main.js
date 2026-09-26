@@ -1022,24 +1022,33 @@ async function exportVideo() {
       el.timeCurrent.textContent = formatTime(progress * config.duration);
     });
 
-    el.progressText.textContent = 'Encoding MP4 video...';
+    el.progressText.textContent = 'Finalizing video...';
     const blob = await state.recorder.stop();
+    state.resultBlob = blob;
 
     // Revoke previous URL
     if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
     state.resultUrl = URL.createObjectURL(blob);
 
-    // Show result
+    const isWebM = blob.type.includes('webm');
+    const ext = isWebM ? 'webm' : 'mp4';
+    const formatLabel = isWebM ? 'WebM' : 'MP4';
+
+    // Show result and setup for reliable inline playback (Safari/iOS requirement)
+    el.resultVideo.muted = true;
+    el.resultVideo.defaultMuted = true;
     el.resultVideo.src = state.resultUrl;
-    el.resultInfo.textContent = `${width}×${height} • ${config.fps}fps • ${config.duration}s • ${(blob.size / 1024 / 1024).toFixed(1)}MB (MP4)`;
+    el.resultVideo.load();
+    el.resultInfo.textContent = `${width}×${height} • ${config.fps}fps • ${config.duration}s • ${(blob.size / 1024 / 1024).toFixed(1)}MB (${formatLabel})`;
     el.downloadResult.classList.add('visible');
 
     // Auto-play the result video in loop
     el.resultVideo.play().catch(() => {});
 
-    // AUTO-DOWNLOAD: Trigger automatic download in .mp4 format immediately after rendering
-    const mp4Filename = `cinematic-astro-${config.duration}s.mp4`;
-    VideoRecorder.download(state.resultUrl, mp4Filename);
+    // AUTO-DOWNLOAD: Trigger automatic download with appropriate resolution, fps, and extension
+    const downloadFilename = `cinematic-astro-${config.duration}s-${width}x${height}-${config.fps}fps.${ext}`;
+    state.lastExportMeta = { duration: config.duration, width, height, fps: config.fps };
+    VideoRecorder.download(state.resultUrl, downloadFilename);
 
   } catch (err) {
     console.error('Export failed:', err);
@@ -1467,7 +1476,15 @@ function init() {
 
   el.btnDownload.addEventListener('click', () => {
     if (state.resultUrl) {
-      VideoRecorder.download(state.resultUrl, `cinematic-astro-${parseInt(el.ctrlDuration.value)}s.mp4`);
+      const ext = state.resultBlob?.type?.includes('webm') ? 'webm' : 'mp4';
+      const meta = state.lastExportMeta || {
+        duration: parseInt(el.ctrlDuration.value),
+        width: getResolution().width,
+        height: getResolution().height,
+        fps: parseInt(el.ctrlFps.value),
+      };
+      const filename = `cinematic-astro-${meta.duration}s-${meta.width}x${meta.height}-${meta.fps}fps.${ext}`;
+      VideoRecorder.download(state.resultUrl, filename);
     }
   });
 
